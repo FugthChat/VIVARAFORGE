@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vivara Forge | Web3 IDE</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        :root {
+            --bg: #1e1e1e;
+            --sidebar: #252526;
+            --border: #3c3c3c;
+            --text: #d4d4d4;
+            --muted: #858585;
+            --accent: #0e639c;
+            --orange: #d4730f;
+            --green: #3fc04f;
+            --error: #f14c4c;
+        }
+        
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background: var(--bg); 
+            color: var(--text); 
+            height: 100vh; 
+            display: flex; 
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        /* LOGIN OVERLAY */
+        #loginOverlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.85);
+            z-index: 1000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(8px);
+        }
+        #loginOverlay.hidden { display: none; }
+        
+        .login-box {
+            background: #252526;
+            padding: 40px;
+            border-radius: 12px;
+            border: 1px solid #3c3c3c;
+            width: 400px;
+            text-align: center;
+        }
+        .login-box h1 { font-size: 28px; margin-bottom: 8px; }
+        .login-box p { color: var(--muted); margin-bottom: 24px; font-size: 14px; }
+        .login-box input {
+            width: 100%;
+            padding: 12px 16px;
+            margin-bottom: 12px;
+            background: #1e1e1e;
+            border: 1px solid #444;
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+        }
+        .login-box input:focus { border-color: var(--accent); outline: none; }
+        .login-box .btn-row { display: flex; gap: 12px; margin-top: 16px; }
+        .login-box button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .login-box .btn-primary { background: white; color: #1e1e1e; }
+        .login-box .btn-primary:hover { background: var(--orange); color: white; }
+        .login-box .btn-secondary { background: #333; color: white; border: 1px solid #555; }
+        .login-box .btn-secondary:hover { background: #444; }
+        .login-box .error { color: var(--error); font-size: 13px; margin-top: 12px; min-height: 20px; }
+        
+        /* HEADER */
+        .header {
+            height: 48px;
+            background: linear-gradient(180deg, #2d2d2d 0%, #252526 100%);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            gap: 16px;
+        }
+        .logo { 
+            font-family: 'JetBrains Mono'; 
+            font-weight: 600; 
+            font-size: 15px;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo .dot { 
+            width: 10px; height: 10px; 
+            background: var(--green); 
+            border-radius: 50%; 
+            box-shadow: 0 0 10px var(--green); 
+        }
+        .logo span { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 8px; }
+        
+        .header-btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 8px 18px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.15s;
+        }
+        .header-btn:hover { transform: translateY(-1px); filter: brightness(1.1); }
+        .header-btn.orange { background: linear-gradient(180deg, #e8850f 0%, #d4730f 100%); }
+        .header-btn.green { background: linear-gradient(180deg, #3ab55f 0%, #2ea44f 100%); }
+        
+        .header-right {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .user-info { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+        .user-badge {
+            background: #333;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-family: 'JetBrains Mono';
+            font-size: 11px;
+            border: 1px solid #444;
+        }
+        .user-badge.diamond { border-color: #00d4ff; color: #00d4ff; }
+        .user-badge.gold { border-color: #ffd700; color: #ffd700; }
+        .user-badge.connected { border-color: var(--green); color: var(--green); }
+        
+        .logout-btn {
+            background: none;
+            border: 1px solid #555;
+            color: var(--muted);
+            padding: 6px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .logout-btn:hover { background: #333; color: white; }
+        
+        /* MAIN LAYOUT */
+        .main { flex: 1; display: flex; min-height: 0; }
+        
+        /* SIDEBAR */
+        .sidebar {
+            width: 260px;
+            background: var(--sidebar);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+        .sidebar-section { padding: 16px; border-bottom: 1px solid var(--border); }
+        .sidebar-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 12px;
+            letter-spacing: 1px;
+            font-weight: 600;
+        }
+        .file-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            cursor: pointer;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-bottom: 4px;
+            transition: background 0.1s;
+        }
+        .file-item:hover { background: #2a2d2e; }
+        .file-item.active { background: #37373d; border-left: 3px solid var(--accent); }
+        
+        .env-select {
+            width: 100%;
+            background: #3c3c3c;
+            border: 1px solid #555;
+            color: var(--text);
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 14px;
+            cursor: pointer;
+        }
+        .env-select:focus { border-color: var(--accent); outline: none; }
+        
+        .input-group { margin-bottom: 14px; }
+        .input-group label {
+            display: block;
+            font-size: 11px;
+            color: var(--muted);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .input-group input {
+            width: 100%;
+            background: #3c3c3c;
+            border: 1px solid #555;
+            color: var(--text);
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-family: 'JetBrains Mono';
+        }
+        .input-group input:focus { border-color: var(--accent); outline: none; }
+        
+        /* EDITOR */
+        .editor-container { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+        
+        .tab-bar {
+            height: 42px;
+            background: var(--sidebar);
+            display: flex;
+            align-items: flex-end;
+            border-bottom: 1px solid var(--border);
+            padding-left: 10px;
+        }
+        .tab {
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            border-bottom: none;
+            margin-bottom: -1px;
+            border-radius: 8px 8px 0 0;
+            background: #2d2d2d;
+            transition: background 0.1s;
+        }
+        .tab.active { 
+            background: var(--bg); 
+            border-color: var(--border);
+            border-top: 2px solid var(--accent);
+        }
+        .tab:not(.active):hover { background: #333; }
+        .tab .close { opacity: 0.5; font-size: 16px; margin-left: 4px; }
+        .tab .close:hover { opacity: 1; }
+        
+        .editor {
+            flex: 1;
+            display: flex;
+            background: var(--bg);
+            overflow: hidden;
+        }
+        .line-numbers {
+            width: 60px;
+            background: var(--bg);
+            border-right: 1px solid #333;
+            padding: 16px 12px;
+            text-align: right;
+            font-family: 'JetBrains Mono';
+            font-size: 14px;
+            color: #6e7681;
+            line-height: 1.6;
+            user-select: none;
+            overflow: hidden;
+        }
+        #codeEditor {
+            flex: 1;
+            padding: 16px 20px;
+            font-family: 'JetBrains Mono';
+            font-size: 14px;
+            line-height: 1.6;
+            background: var(--bg);
+            color: var(--text);
+            border: none;
+            resize: none;
+            outline: none;
+            overflow: auto;
+        }
+        
+        /* RIGHT PANEL */
+        .right-panel {
+            width: 340px;
+            background: var(--sidebar);
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+        }
+        .panel-header {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            font-weight: 600;
+            font-size: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .panel-content { flex: 1; padding: 16px; overflow-y: auto; }
+        
+        .deploy-btn {
+            width: 100%;
+            background: linear-gradient(180deg, #e8850f 0%, #d4730f 100%);
+            color: white;
+            border: none;
+            padding: 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: all 0.15s;
+        }
+        .deploy-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(212, 115, 15, 0.4); }
+        .deploy-btn:disabled { background: #555; cursor: not-allowed; transform: none; box-shadow: none; }
+        
+        .info-card {
+            background: var(--bg);
+            padding: 14px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            border: 1px solid #333;
+        }
+        .info-card .row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+        .info-card .row:last-child { margin-bottom: 0; }
+        .info-card .label { color: var(--muted); }
+        .info-card .value { font-family: 'JetBrains Mono'; color: #4ec9b0; }
+        
+        .contract-card {
+            background: var(--bg);
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #333;
+            font-size: 12px;
+        }
+        .contract-card .name { color: #4ec9b0; font-weight: 600; margin-bottom: 6px; }
+        .contract-card .address { 
+            color: var(--muted); 
+            font-family: 'JetBrains Mono'; 
+            word-break: break-all;
+            font-size: 11px;
+        }
+        
+        /* TERMINAL */
+        .terminal-container {
+            height: 180px;
+            background: var(--bg);
+            border-top: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+        }
+        .terminal-header {
+            padding: 10px 16px;
+            background: var(--sidebar);
+            border-bottom: 1px solid var(--border);
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .terminal {
+            flex: 1;
+            font-family: 'JetBrains Mono';
+            font-size: 13px;
+            padding: 12px 16px;
+            overflow-y: auto;
+            color: var(--text);
+            line-height: 1.6;
+        }
+        .terminal .error { color: var(--error); }
+        .terminal .success { color: var(--green); }
+        .terminal .info { color: var(--muted); }
+        
+        /* STATUS BAR */
+        .status-bar {
+            height: 28px;
+            background: #007acc;
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            font-size: 12px;
+            gap: 24px;
+        }
+        .status-item { display: flex; align-items: center; gap: 8px; }
+    </style>
+</head>
+<body>
+
+    <!-- LOGIN OVERLAY -->
+    <div id="loginOverlay">
+        <div class="login-box">
+            <h1>🦁 VIVARA FORGE</h1>
+            <p>Sign in with your MEP Sandbox account to sync perks</p>
+            <input type="email" id="emailInput" placeholder="Email">
+            <input type="password" id="passwordInput" placeholder="Password">
+            <div class="btn-row">
+                <button class="btn-primary" id="loginBtn">SIGN IN</button>
+                <button class="btn-secondary" id="signupBtn">CREATE</button>
+            </div>
+            <div class="error" id="loginError"></div>
+        </div>
+    </div>
+
+    <!-- MAIN APP -->
+    <div class="header">
+        <div class="logo">
+            <div class="dot"></div> 
+            VIVARA FORGE 
+            <span>v2.0.1</span>
+        </div>
+        <button class="header-btn green" onclick="connectWallet()">🦊 Connect Wallet</button>
+        <button class="header-btn orange" onclick="compileContract()">⚡ Compile</button>
+        <div class="header-right">
+            <div class="user-info">
+                <span id="userIdDisplay">...</span>
+                <span id="userBadge" class="user-badge">GUEST</span>
+            </div>
+            <span id="walletBadge" class="user-badge">Not Connected</span>
+            <button class="logout-btn" onclick="logout()">LOGOUT</button>
+        </div>
+    </div>
+    
+    <div class="main">
+        <div class="sidebar">
+            <div class="sidebar-section">
+                <div class="sidebar-title">📁 Project Files</div>
+                <div class="file-item active">📄 Contract.sol</div>
+                <div class="file-item">📄 Token.sol</div>
+                <div class="file-item">📁 artifacts</div>
+                <div class="file-item">📁 scripts</div>
+            </div>
+            
+            <div class="sidebar-section">
+                <div class="sidebar-title">⚙️ Environment</div>
+                <select class="env-select" id="envSelect">
+                    <option value="metamask">🦊 Injected - MetaMask</option>
+                    <option value="sepolia">🔗 Sepolia Testnet</option>
+                    <option value="polygon">🟣 Polygon Mumbai</option>
+                    <option value="mainnet">⟠ Ethereum Mainnet</option>
+                </select>
+                
+                <div class="input-group">
+                    <label>Account</label>
+                    <input type="text" id="accountInput" value="Connect wallet..." readonly>
+                </div>
+                
+                <div class="input-group">
+                    <label>Gas Limit</label>
+                    <input type="text" id="gasLimit" value="3000000">
+                </div>
+                
+                <div class="input-group">
+                    <label>Value (ETH)</label>
+                    <input type="text" id="valueEth" value="0">
+                </div>
+            </div>
+            
+            <div class="sidebar-section">
+                <div class="sidebar-title">🔧 Compiler</div>
+                <select class="env-select" id="compilerVersion">
+                    <option value="0.8.20">Solidity v0.8.20</option>
+                    <option value="0.8.19">Solidity v0.8.19</option>
+                    <option value="0.8.18">Solidity v0.8.18</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="editor-container">
+            <div class="tab-bar">
+                <div class="tab active">📄 Contract.sol <span class="close">×</span></div>
+            </div>
+            <div class="editor">
+                <div class="line-numbers" id="lineNumbers"></div>
+                <textarea id="codeEditor" spellcheck="false"></textarea>
+            </div>
+            <div class="terminal-container">
+                <div class="terminal-header">📟 Terminal</div>
+                <div class="terminal" id="terminal"></div>
+            </div>
+        </div>
+        
+        <div class="right-panel">
+            <div class="panel-header">🚀 Deploy & Run</div>
+            <div class="panel-content">
+                <div class="info-card">
+                    <div class="row">
+                        <span class="label">Contract</span>
+                        <span class="value" id="contractName">Not Compiled</span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Status</span>
+                        <span class="value" id="compileStatus">⏳ Waiting</span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Bytecode</span>
+                        <span class="value" id="bytecodeSize">0 bytes</span>
+                    </div>
+                </div>
+                
+                <div class="input-group">
+                    <label>Constructor Arguments</label>
+                    <input type="text" id="constructorArgs" placeholder="e.g., 1000000">
+                </div>
+                
+                <button class="deploy-btn" id="deployBtn" onclick="deployContract()" disabled>
+                    🚀 Deploy Contract
+                </button>
+                
+                <div class="sidebar-title" style="margin-top: 24px;">Deployed Contracts</div>
+                <div id="contractsList"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="status-bar">
+        <div class="status-item">🦁 Vivara Forge v2.0.1</div>
+        <div class="status-item" id="statusNetwork">Network: --</div>
+        <div class="status-item" id="statusBalance">Balance: --</div>
+        <div class="status-item" id="statusAuth">Auth: --</div>
+    </div>
+
+    <!-- FIREBASE -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAyAioT7g8jkZoybvAhBqaDaXlJh-ZTwV4",
+            authDomain: "mepsandboxengine.firebaseapp.com",
+            projectId: "mepsandboxengine",
+            storageBucket: "mepsandboxengine.appspot.com",
+            messagingSenderId: "1044651702498",
+            appId: "1:1044651702498:web:abc123"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        document.getElementById('loginBtn').onclick = async () => {
+            const email = document.getElementById('emailInput').value.trim();
+            const pass = document.getElementById('passwordInput').value;
+            document.getElementById('loginBtn').textContent = 'CONNECTING...';
+            document.getElementById('loginError').textContent = '';
+            try {
+                await signInWithEmailAndPassword(auth, email, pass);
+            } catch (e) {
+                document.getElementById('loginError').textContent = e.message;
+                document.getElementById('loginBtn').textContent = 'SIGN IN';
+            }
+        };
+
+        document.getElementById('signupBtn').onclick = async () => {
+            const email = document.getElementById('emailInput').value.trim();
+            const pass = document.getElementById('passwordInput').value;
+            document.getElementById('signupBtn').textContent = 'CREATING...';
+            document.getElementById('loginError').textContent = '';
+            try {
+                const cred = await createUserWithEmailAndPassword(auth, email, pass);
+                await setDoc(doc(db, "users", cred.user.uid), {
+                    displayName: "Creator",
+                    email: cred.user.email,
+                    createdAt: serverTimestamp(),
+                    lastLogin: serverTimestamp()
+                }, { merge: true });
+            } catch (e) {
+                document.getElementById('loginError').textContent = e.message;
+                document.getElementById('signupBtn').textContent = 'CREATE';
+            }
+        };
+
+        window.logout = () => {
+            signOut(auth);
+            location.reload();
+        };
+
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                document.getElementById('loginOverlay').classList.add('hidden');
+                document.getElementById('userIdDisplay').textContent = user.uid.slice(0, 6).toUpperCase();
+                document.getElementById('statusAuth').textContent = 'Auth: ✅';
+                
+                try {
+                    const snap = await getDoc(doc(db, "users", user.uid));
+                    if (snap.exists()) {
+                        const inv = snap.data().inventory || [];
+                        const badge = document.getElementById('userBadge');
+                        
+                        if (inv.includes("CREATOR")) {
+                            badge.textContent = '👑 ADMIN';
+                            badge.className = 'user-badge diamond';
+                        } else if (inv.includes("DIAMOND")) {
+                            badge.textContent = '💎 DIAMOND';
+                            badge.className = 'user-badge diamond';
+                        } else if (inv.includes("GOLD")) {
+                            badge.textContent = '🥇 GOLD';
+                            badge.className = 'user-badge gold';
+                        } else if (inv.includes("FOUNDER")) {
+                            badge.textContent = 'FOUNDER';
+                            badge.className = 'user-badge';
+                        } else {
+                            badge.textContent = 'MEMBER';
+                        }
+                    }
+                } catch (e) {
+                    console.log("Profile load error:", e);
+                }
+                
+                window.log('✅ Signed in: ' + user.email, 'success');
+            } else {
+                document.getElementById('loginOverlay').classList.remove('hidden');
+                document.getElementById('statusAuth').textContent = 'Auth: --';
+            }
+        });
+    </script>
+
+    <script>
+        // ===== STATE =====
+        let provider = null;
+        let signer = null;
+        let userAddress = null;
+        let compiledABI = null;
+        let compiledBytecode = null;
+        let compiledName = null;
+        let solcLoaded = false;
+        let solcCompile = null;
+
+        // ===== DEFAULT CODE =====
+        const defaultCode = `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract MyToken {
+    string public name = "Vivara Coin";
+    string public symbol = "VIVR";
+    uint8 public decimals = 18;
+    uint256 public totalSupply;
+    
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+    
+    event Transfer(address indexed from, address indexed to, uint256 value);
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+    
+    constructor(uint256 _initialSupply) {
+        totalSupply = _initialSupply * 10 ** decimals;
+        balanceOf[msg.sender] = totalSupply;
+        emit Transfer(address(0), msg.sender, totalSupply);
+    }
+    
+    function transfer(address to, uint256 amount) public returns (bool) {
+        require(balanceOf[msg.sender] >= amount, "Insufficient balance");
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += amount;
+        emit Transfer(msg.sender, to, amount);
+        return true;
+    }
+    
+    function approve(address spender, uint256 amount) public returns (bool) {
+        allowance[msg.sender][spender] = amount;
+        emit Approval(msg.sender, spender, amount);
+        return true;
+    }
+    
+    function transferFrom(address from, address to, uint256 amount) public returns (bool) {
+        require(balanceOf[from] >= amount, "Insufficient balance");
+        require(allowance[from][msg.sender] >= amount, "Allowance exceeded");
+        allowance[from][msg.sender] -= amount;
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount;
+        emit Transfer(from, to, amount);
+        return true;
+    }
+}`;
+
+        // ===== INIT EDITOR =====
+        const editor = document.getElementById('codeEditor');
+        editor.value = defaultCode;
+        updateLineNumbers();
+        
+        editor.addEventListener('input', updateLineNumbers);
+        editor.addEventListener('scroll', () => {
+            document.getElementById('lineNumbers').scrollTop = editor.scrollTop;
+        });
+
+        function updateLineNumbers() {
+            const lines = editor.value.split('\n');
+            document.getElementById('lineNumbers').innerHTML = lines.map((_, i) => i + 1).join('<br>');
+        }
+
+        // ===== TERMINAL =====
+        window.log = function(msg, type = '') {
+            const terminal = document.getElementById('terminal');
+            const time = new Date().toLocaleTimeString();
+            terminal.innerHTML += `<div class="${type}">[${time}] ${msg}</div>`;
+            terminal.scrollTop = terminal.scrollHeight;
+        };
+
+        log('Vivara Forge v2.0.1 Ready', 'info');
+        log('Loading Solidity compiler...', 'info');
+
+        // ===== LOAD SOLC =====
+        function loadSolc() {
+            const script = document.createElement('script');
+            script.src = 'https://binaries.soliditylang.org/bin/soljson-v0.8.20+commit.a1b79de6.js';
+            script.onload = () => {
+                // Wait for Module to be ready
+                const checkModule = setInterval(() => {
+                    if (typeof Module !== 'undefined' && Module.cwrap) {
+                        solcCompile = Module.cwrap('solidity_compile', 'string', ['string', 'number']);
+                        solcLoaded = true;
+                        log('✅ Solidity compiler v0.8.20 loaded!', 'success');
+                        clearInterval(checkModule);
+                    }
+                }, 100);
+            };
+            script.onerror = () => {
+                log('❌ Failed to load Solidity compiler', 'error');
+            };
+            document.head.appendChild(script);
+        }
+        loadSolc();
+
+        // ===== CONNECT WALLET =====
+        window.connectWallet = async function() {
+            if (!window.ethereum) {
+                log('❌ MetaMask not detected! Please install MetaMask.', 'error');
+                alert('MetaMask not found! Please install the MetaMask browser extension.');
+                return;
+            }
+            
+            try {
+                log('Connecting to MetaMask...', 'info');
+                provider = new ethers.providers.Web3Provider(window.ethereum);
+                await provider.send("eth_requestAccounts", []);
+                signer = provider.getSigner();
+                userAddress = await signer.getAddress();
+                
+                const network = await provider.getNetwork();
+                const balance = await provider.getBalance(userAddress);
+                const balanceEth = parseFloat(ethers.utils.formatEther(balance)).toFixed(4);
+                
+                document.getElementById('walletBadge').textContent = userAddress.slice(0,6) + '...' + userAddress.slice(-4);
+                document.getElementById('walletBadge').classList.add('connected');
+                document.getElementById('accountInput').value = userAddress.slice(0,14) + '...';
+                document.getElementById('statusNetwork').textContent = 'Network: ' + (network.name || 'Chain ' + network.chainId);
+                document.getElementById('statusBalance').textContent = 'Balance: ' + balanceEth + ' ETH';
+                
+                log('✅ Wallet connected: ' + userAddress, 'success');
+                log('Network: ' + (network.name || 'Chain ' + network.chainId) + ' | Balance: ' + balanceEth + ' ETH', 'info');
+            } catch (e) {
+                log('❌ Connection failed: ' + e.message, 'error');
+            }
+        };
+
+        // ===== COMPILE =====
+        window.compileContract = function() {
+            if (!solcLoaded) {
+                log('⏳ Compiler still loading, please wait...', 'info');
+                return;
+            }
+            
+            log('⚡ Compiling Solidity code...', 'info');
+            
+            try {
+                const sourceCode = editor.value;
+                
+                const input = {
+                    language: 'Solidity',
+                    sources: {
+                        'Contract.sol': { content: sourceCode }
+                    },
+                    settings: {
+                        outputSelection: {
+                            '*': { '*': ['abi', 'evm.bytecode.object'] }
+                        },
+                        optimizer: { enabled: true, runs: 200 }
+                    }
+                };
+
+                const output = JSON.parse(solcCompile(JSON.stringify(input), 0));
+
+                if (output.errors) {
+                    const errors = output.errors.filter(e => e.severity === 'error');
+                    if (errors.length > 0) {
+                        errors.forEach(e => log('❌ ' + e.formattedMessage, 'error'));
+                        return;
+                    }
+                    output.errors.filter(e => e.severity === 'warning').forEach(e => {
+                        log('⚠️ ' + e.message, 'info');
+                    });
+                }
+
+                const contracts = output.contracts['Contract.sol'];
+                const contractNames = Object.keys(contracts);
+                if (contractNames.length === 0) {
+                    log('❌ No contracts found in source', 'error');
+                    return;
+                }
+
+                const name = contractNames[0];
+                const contract = contracts[name];
+                
+                compiledABI = contract.abi;
+                compiledBytecode = contract.evm.bytecode.object;
+                compiledName = name;
+
+                document.getElementById('contractName').textContent = name;
+                document.getElementById('compileStatus').textContent = '✅ Compiled';
+                document.getElementById('bytecodeSize').textContent = (compiledBytecode.length / 2) + ' bytes';
+                document.getElementById('deployBtn').disabled = false;
+
+                log('✅ Compilation successful!', 'success');
+                log('Contract: ' + name + ' | ABI: ' + compiledABI.length + ' items | Bytecode: ' + (compiledBytecode.length / 2) + ' bytes', 'info');
+
+            } catch (e) {
+                log('❌ Compilation error: ' + e.message, 'error');
+                console.error(e);
+            }
+        };
+
+        // ===== DEPLOY =====
+        window.deployContract = async function() {
+            if (!signer) {
+                log('❌ Please connect your wallet first!', 'error');
+                alert('Please connect MetaMask first!');
+                return;
+            }
+            
+            if (!compiledBytecode) {
+                log('❌ Please compile the contract first!', 'error');
+                return;
+            }
+            
+            try {
+                const btn = document.getElementById('deployBtn');
+                btn.disabled = true;
+                btn.innerHTML = '⏳ Deploying...';
+                
+                log('🚀 Starting deployment...', 'info');
+                
+                const factory = new ethers.ContractFactory(compiledABI, '0x' + compiledBytecode, signer);
+                
+                const argsInput = document.getElementById('constructorArgs').value.trim();
+                let args = [];
+                if (argsInput) {
+                    args = argsInput.split(',').map(a => {
+                        const trimmed = a.trim();
+                        if ((trimmed.startsWith("'") && trimmed.endsWith("'")) || 
+                            (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
+                            return trimmed.slice(1, -1);
+                        }
+                        return trimmed;
+                    });
+                }
+                
+                log('Constructor args: [' + (args.length ? args.join(', ') : 'none') + ']', 'info');
+                
+                const contract = await factory.deploy(...args);
+                log('📤 Transaction sent: ' + contract.deployTransaction.hash, 'info');
+                log('⏳ Waiting for confirmation...', 'info');
+                
+                await contract.deployed();
+                
+                log('✅ CONTRACT DEPLOYED SUCCESSFULLY!', 'success');
+                log('📍 Contract Address: ' + contract.address, 'success');
+                
+                const list = document.getElementById('contractsList');
+                list.innerHTML += `
+                    <div class="contract-card">
+                        <div class="name">${compiledName}</div>
+                        <div class="address">${contract.address}</div>
+                    </div>
+                `;
+                
+                btn.disabled = false;
+                btn.innerHTML = '🚀 Deploy Contract';
+                
+            } catch (e) {
+                log('❌ Deployment failed: ' + e.message, 'error');
+                document.getElementById('deployBtn').disabled = false;
+                document.getElementById('deployBtn').innerHTML = '🚀 Deploy Contract';
+            }
+        };
+
+        // Auto-connect if already authorized
+        if (window.ethereum && window.ethereum.selectedAddress) {
+            setTimeout(connectWallet, 1000);
+        }
+    </script>
+</body>
+</html>
