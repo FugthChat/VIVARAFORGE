@@ -446,10 +446,10 @@
         <div class="sidebar">
             <div class="sidebar-section">
                 <div class="sidebar-title">📁 Project Files</div>
-                <div class="file-item active">📄 Contract.sol</div>
-                <div class="file-item">📄 Token.sol</div>
-                <div class="file-item">📁 artifacts</div>
-                <div class="file-item">📁 scripts</div>
+                <div class="file-item active" onclick="loadFile('Contract.sol')">📄 Contract.sol</div>
+                <div class="file-item" onclick="loadFile('Token.sol')">📄 Token.sol</div>
+                <div class="file-item" onclick="loadFile('NFT.sol')">📄 NFT.sol</div>
+                <div class="file-item" onclick="createNewCoin()" style="color: var(--green);">➕ Create New Coin</div>
             </div>
             
             <div class="sidebar-section">
@@ -686,8 +686,9 @@
         let solcLoaded = false;
         let solcCompile = null;
 
-        // ===== DEFAULT CODE =====
-        const defaultCode = `// SPDX-License-Identifier: MIT
+        // ===== CONTRACT LIBRARY =====
+        const contractLibrary = {
+            'Contract.sol': `// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
 contract MyToken {
@@ -731,7 +732,94 @@ contract MyToken {
         emit Transfer(from, to, amount);
         return true;
     }
-}`;
+}`,
+            'Token.sol': `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+// Simple ERC20 Token - No imports needed!
+contract VivToken {
+    string public name = "Vivara Token";
+    string public symbol = "VIV";
+    uint8 public decimals = 18;
+    uint256 public totalSupply;
+    address public owner;
+    
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+    
+    event Transfer(address indexed from, address indexed to, uint256 value);
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+    
+    constructor(uint256 initialSupply) {
+        owner = msg.sender;
+        totalSupply = initialSupply * 10 ** uint256(decimals);
+        balanceOf[msg.sender] = totalSupply;
+        emit Transfer(address(0), msg.sender, totalSupply);
+    }
+    
+    function transfer(address to, uint256 amount) public returns (bool) {
+        require(balanceOf[msg.sender] >= amount, "Insufficient balance");
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += amount;
+        emit Transfer(msg.sender, to, amount);
+        return true;
+    }
+    
+    function approve(address spender, uint256 amount) public returns (bool) {
+        allowance[msg.sender][spender] = amount;
+        emit Approval(msg.sender, spender, amount);
+        return true;
+    }
+    
+    function transferFrom(address from, address to, uint256 amount) public returns (bool) {
+        require(balanceOf[from] >= amount, "Insufficient balance");
+        require(allowance[from][msg.sender] >= amount, "Allowance exceeded");
+        allowance[from][msg.sender] -= amount;
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount;
+        emit Transfer(from, to, amount);
+        return true;
+    }
+    
+    function burn(uint256 amount) public {
+        require(balanceOf[msg.sender] >= amount, "Insufficient balance");
+        balanceOf[msg.sender] -= amount;
+        totalSupply -= amount;
+        emit Transfer(msg.sender, address(0), amount);
+    }
+}`,
+            'NFT.sol': `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract VivariaNFT {
+    string public name = "Vivara NFT";
+    string public symbol = "VNFT";
+    uint256 public tokenCounter = 0;
+    address public owner;
+    
+    mapping(uint256 => address) public tokenOwner;
+    mapping(address => uint256) public balanceOf;
+    
+    event Transfer(address indexed from, address indexed to, uint256 tokenId);
+    
+    constructor() {
+        owner = msg.sender;
+    }
+    
+    function mint() public {
+        tokenOwner[tokenCounter] = msg.sender;
+        balanceOf[msg.sender]++;
+        emit Transfer(address(0), msg.sender, tokenCounter);
+        tokenCounter++;
+    }
+    
+    function totalSupply() public view returns (uint256) {
+        return tokenCounter;
+    }
+}`
+        };
+        
+        const defaultCode = contractLibrary['Contract.sol'];
 
         // ===== INIT EDITOR =====
         const editor = document.getElementById('codeEditor');
@@ -769,26 +857,92 @@ contract MyToken {
             }
         });
 
-        // ===== LOAD SOLC =====
+        // ===== LOAD SOLC WITH WORKER =====
+        let solcWorker = null;
+        
         function loadSolc() {
-            const script = document.createElement('script');
-            script.src = 'https://binaries.soliditylang.org/bin/soljson-v0.8.20+commit.a1b79de6.js';
-            script.onload = () => {
-                // Wait for Module to be ready
-                const checkModule = setInterval(() => {
-                    if (typeof Module !== 'undefined' && Module.cwrap) {
-                        solcCompile = Module.cwrap('solidity_compile', 'string', ['string', 'number']);
+            log('🔄 Loading Solidity compiler (this may take a moment)...', 'info');
+            
+            // Use solc-js wrapper approach
+            const workerCode = `
+                importScripts('https://binaries.soliditylang.org/bin/soljson-v0.8.20+commit.a1b79de6.js');
+                
+                self.onmessage = function(e) {
+                    try {
+                        const input = e.data;
+                        const compile = Module.cwrap('solidity_compile', 'string', ['string', 'number']);
+                        const output = compile(input, 0);
+                        self.postMessage({ success: true, output: output });
+                    } catch (err) {
+                        self.postMessage({ success: false, error: err.message });
+                    }
+                };
+                
+                self.postMessage({ ready: true });
+            `;
+            
+            try {
+                const blob = new Blob([workerCode], { type: 'application/javascript' });
+                solcWorker = new Worker(URL.createObjectURL(blob));
+                
+                solcWorker.onmessage = function(e) {
+                    if (e.data.ready) {
                         solcLoaded = true;
                         log('✅ Solidity compiler v0.8.20 loaded!', 'success');
-                        clearInterval(checkModule);
                     }
-                }, 100);
+                };
+                
+                solcWorker.onerror = function(err) {
+                    console.error('Worker error:', err);
+                    log('⚠️ Worker failed, trying direct load...', 'info');
+                    loadSolcDirect();
+                };
+                
+                // Timeout fallback
+                setTimeout(() => {
+                    if (!solcLoaded) {
+                        log('⚠️ Worker timeout, trying direct load...', 'info');
+                        loadSolcDirect();
+                    }
+                }, 15000);
+                
+            } catch (err) {
+                console.error('Worker creation failed:', err);
+                loadSolcDirect();
+            }
+        }
+        
+        function loadSolcDirect() {
+            const script = document.createElement('script');
+            script.src = 'https://binaries.soliditylang.org/bin/soljson-v0.8.20+commit.a1b79de6.js';
+            
+            script.onload = () => {
+                let attempts = 0;
+                const checkModule = setInterval(() => {
+                    attempts++;
+                    if (typeof Module !== 'undefined' && Module.cwrap) {
+                        try {
+                            solcCompile = Module.cwrap('solidity_compile', 'string', ['string', 'number']);
+                            solcLoaded = true;
+                            log('✅ Solidity compiler loaded (direct)!', 'success');
+                            clearInterval(checkModule);
+                        } catch (e) {
+                            console.error('cwrap failed:', e);
+                        }
+                    } else if (attempts > 100) {
+                        clearInterval(checkModule);
+                        log('❌ Compiler failed to load. Please refresh the page.', 'error');
+                    }
+                }, 200);
             };
+            
             script.onerror = () => {
-                log('❌ Failed to load Solidity compiler', 'error');
+                log('❌ Could not load compiler. Check your internet connection.', 'error');
             };
+            
             document.head.appendChild(script);
         }
+        
         loadSolc();
 
         // ===== CONNECT WALLET =====
@@ -830,10 +984,117 @@ contract MyToken {
             }
         };
 
+        // ===== LOAD FILE =====
+        window.loadFile = function(filename) {
+            if (contractLibrary[filename]) {
+                editor.value = contractLibrary[filename];
+                updateLineNumbers();
+                
+                document.querySelectorAll('.file-item').forEach(el => el.classList.remove('active'));
+                if (event && event.target) {
+                    event.target.closest('.file-item').classList.add('active');
+                }
+                
+                document.querySelector('.tab').textContent = '📄 ' + filename + ' ×';
+                log('📂 Loaded ' + filename, 'info');
+                
+                document.getElementById('contractName').textContent = 'Not Compiled';
+                document.getElementById('compileStatus').textContent = '⏳ Waiting';
+                document.getElementById('bytecodeSize').textContent = '0 bytes';
+                document.getElementById('deployBtn').disabled = true;
+                compiledBytecode = null;
+                compiledABI = null;
+            }
+        };
+        
+        // ===== CREATE NEW COIN =====
+        window.createNewCoin = function() {
+            const coinName = prompt('Enter your coin name (e.g., "My Awesome Coin"):');
+            if (!coinName) return;
+            
+            const coinSymbol = prompt('Enter coin symbol (3-5 letters, e.g., "MAC"):');
+            if (!coinSymbol) return;
+            
+            const initialSupply = prompt('Enter initial supply (e.g., 1000000):');
+            if (!initialSupply) return;
+            
+            const contractName = coinSymbol.toUpperCase() + 'Token';
+            
+            const newContract = `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+// ${coinName} - Custom Token
+contract ${contractName} {
+    string public name = "${coinName}";
+    string public symbol = "${coinSymbol.toUpperCase()}";
+    uint8 public decimals = 18;
+    uint256 public totalSupply;
+    address public owner;
+    
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+    
+    event Transfer(address indexed from, address indexed to, uint256 value);
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+    
+    constructor() {
+        owner = msg.sender;
+        totalSupply = ${initialSupply} * 10 ** uint256(decimals);
+        balanceOf[msg.sender] = totalSupply;
+        emit Transfer(address(0), msg.sender, totalSupply);
+    }
+    
+    function transfer(address to, uint256 amount) public returns (bool) {
+        require(balanceOf[msg.sender] >= amount, "Insufficient balance");
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += amount;
+        emit Transfer(msg.sender, to, amount);
+        return true;
+    }
+    
+    function approve(address spender, uint256 amount) public returns (bool) {
+        allowance[msg.sender][spender] = amount;
+        emit Approval(msg.sender, spender, amount);
+        return true;
+    }
+    
+    function transferFrom(address from, address to, uint256 amount) public returns (bool) {
+        require(balanceOf[from] >= amount, "Insufficient balance");
+        require(allowance[from][msg.sender] >= amount, "Allowance exceeded");
+        allowance[from][msg.sender] -= amount;
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount;
+        emit Transfer(from, to, amount);
+        return true;
+    }
+    
+    function burn(uint256 amount) public {
+        require(balanceOf[msg.sender] >= amount, "Insufficient balance");
+        balanceOf[msg.sender] -= amount;
+        totalSupply -= amount;
+        emit Transfer(msg.sender, address(0), amount);
+    }
+}`;
+            
+            editor.value = newContract;
+            updateLineNumbers();
+            document.querySelector('.tab').textContent = '📄 ' + contractName + '.sol ×';
+            log('🪙 Created new coin: ' + coinName + ' (' + coinSymbol.toUpperCase() + ')', 'success');
+            log('💡 Click Compile, then Deploy (no constructor args needed)', 'info');
+            
+            document.getElementById('contractName').textContent = 'Not Compiled';
+            document.getElementById('compileStatus').textContent = '⏳ Waiting';
+            document.getElementById('bytecodeSize').textContent = '0 bytes';
+            document.getElementById('deployBtn').disabled = true;
+            document.getElementById('constructorArgs').value = '';
+            compiledBytecode = null;
+            compiledABI = null;
+        };
+        
         // ===== COMPILE =====
         window.compileContract = function() {
             if (!solcLoaded) {
-                log('⏳ Compiler still loading, please wait...', 'info');
+                log('⏳ Compiler still loading, please wait 10-15 seconds...', 'info');
                 return;
             }
             
@@ -841,6 +1102,13 @@ contract MyToken {
             
             try {
                 const sourceCode = editor.value;
+                
+                // Check for unsupported imports
+                if (sourceCode.includes('@openzeppelin') || sourceCode.includes('import "')) {
+                    log('⚠️ External imports detected! Browser compiler cannot resolve imports.', 'error');
+                    log('💡 Use the built-in templates (Contract.sol, Token.sol, NFT.sol) which work standalone.', 'info');
+                    return;
+                }
                 
                 const input = {
                     language: 'Solidity',
@@ -855,46 +1123,70 @@ contract MyToken {
                     }
                 };
 
-                const output = JSON.parse(solcCompile(JSON.stringify(input), 0));
-
-                if (output.errors) {
-                    const errors = output.errors.filter(e => e.severity === 'error');
-                    if (errors.length > 0) {
-                        errors.forEach(e => log('❌ ' + e.formattedMessage, 'error'));
-                        return;
-                    }
-                    output.errors.filter(e => e.severity === 'warning').forEach(e => {
-                        log('⚠️ ' + e.message, 'info');
-                    });
+                // Use worker if available, otherwise direct
+                if (solcWorker && !solcCompile) {
+                    log('📦 Compiling via worker...', 'info');
+                    solcWorker.onmessage = function(e) {
+                        if (e.data.ready) return;
+                        if (e.data.success) {
+                            handleCompileOutput(JSON.parse(e.data.output));
+                        } else {
+                            log('❌ Worker compile error: ' + e.data.error, 'error');
+                        }
+                    };
+                    solcWorker.postMessage(JSON.stringify(input));
+                } else if (typeof solcCompile === 'function') {
+                    const output = JSON.parse(solcCompile(JSON.stringify(input), 0));
+                    handleCompileOutput(output);
+                } else {
+                    log('❌ Compiler not available - please refresh page', 'error');
                 }
-
-                const contracts = output.contracts['Contract.sol'];
-                const contractNames = Object.keys(contracts);
-                if (contractNames.length === 0) {
-                    log('❌ No contracts found in source', 'error');
-                    return;
-                }
-
-                const name = contractNames[0];
-                const contract = contracts[name];
-                
-                compiledABI = contract.abi;
-                compiledBytecode = contract.evm.bytecode.object;
-                compiledName = name;
-
-                document.getElementById('contractName').textContent = name;
-                document.getElementById('compileStatus').textContent = '✅ Compiled';
-                document.getElementById('bytecodeSize').textContent = (compiledBytecode.length / 2) + ' bytes';
-                document.getElementById('deployBtn').disabled = false;
-
-                log('✅ Compilation successful!', 'success');
-                log('Contract: ' + name + ' | ABI: ' + compiledABI.length + ' items | Bytecode: ' + (compiledBytecode.length / 2) + ' bytes', 'info');
 
             } catch (e) {
                 log('❌ Compilation error: ' + e.message, 'error');
                 console.error(e);
             }
         };
+        
+        function handleCompileOutput(output) {
+            if (output.errors) {
+                const errors = output.errors.filter(e => e.severity === 'error');
+                if (errors.length > 0) {
+                    errors.forEach(e => log('❌ ' + e.formattedMessage, 'error'));
+                    return;
+                }
+                output.errors.filter(e => e.severity === 'warning').forEach(e => {
+                    log('⚠️ ' + e.message, 'info');
+                });
+            }
+
+            const contracts = output.contracts['Contract.sol'];
+            if (!contracts) {
+                log('❌ No contracts compiled', 'error');
+                return;
+            }
+            
+            const contractNames = Object.keys(contracts);
+            if (contractNames.length === 0) {
+                log('❌ No contracts found in source', 'error');
+                return;
+            }
+
+            const name = contractNames[0];
+            const contract = contracts[name];
+            
+            compiledABI = contract.abi;
+            compiledBytecode = contract.evm.bytecode.object;
+            compiledName = name;
+
+            document.getElementById('contractName').textContent = name;
+            document.getElementById('compileStatus').textContent = '✅ Compiled';
+            document.getElementById('bytecodeSize').textContent = (compiledBytecode.length / 2) + ' bytes';
+            document.getElementById('deployBtn').disabled = false;
+
+            log('✅ Compilation successful!', 'success');
+            log('Contract: ' + name + ' | ABI: ' + compiledABI.length + ' items | Bytecode: ' + (compiledBytecode.length / 2) + ' bytes', 'info');
+        }
 
         // ===== DEPLOY =====
         window.deployContract = async function() {
