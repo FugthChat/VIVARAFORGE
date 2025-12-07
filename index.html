@@ -541,17 +541,42 @@
         <div class="status-item" id="statusAuth">Auth: --</div>
     </div>
 
-    <!-- LOAD ETHERS.JS SYNCHRONOUSLY FIRST -->
-    <script src="https://cdn.ethers.io/lib/ethers-5.7.umd.min.js"></script>
-    
-    <!-- Verify Ethers Loaded -->
+    <!-- LOAD ETHERS.JS FROM MULTIPLE CDNS WITH FALLBACK -->
     <script>
-        if (typeof ethers === 'undefined') {
-            console.error('Failed to load ethers.js from CDN');
-            alert('Critical Error: Failed to load blockchain library. Please refresh the page.');
-        } else {
-            console.log('Ethers.js loaded successfully:', ethers.version);
-        }
+        window.ethersLoadPromise = new Promise((resolve) => {
+            const tryLoad = (urls, index = 0) => {
+                if (index >= urls.length) {
+                    console.error('All ethers.js CDN URLs failed');
+                    resolve(false);
+                    return;
+                }
+                
+                const script = document.createElement('script');
+                script.src = urls[index];
+                script.onload = () => {
+                    if (typeof ethers !== 'undefined') {
+                        console.log('Ethers.js loaded from:', urls[index]);
+                        resolve(true);
+                    } else {
+                        tryLoad(urls, index + 1);
+                    }
+                };
+                script.onerror = () => {
+                    console.warn('Failed to load ethers from:', urls[index], '- trying next...');
+                    tryLoad(urls, index + 1);
+                };
+                document.head.appendChild(script);
+            };
+            
+            // Multiple CDN sources
+            const cdnUrls = [
+                'https://cdn.ethers.io/lib/ethers-5.7.umd.min.js',
+                'https://unpkg.com/ethers@5.7.2/dist/ethers.umd.min.js',
+                'https://cdnjs.cloudflare.com/ajax/libs/ethers.js/5.7.2/ethers.umd.min.js'
+            ];
+            
+            tryLoad(cdnUrls);
+        });
     </script>
 
     <!-- FIREBASE -->
@@ -733,21 +758,16 @@ contract MyToken {
 
         log('Vivara Forge v2.0.1 Ready', 'info');
         log('Loading Solidity compiler...', 'info');
+        log('Loading blockchain library...', 'info');
         
-        // Check if ethers loaded (with retry)
-        let ethersCheckAttempts = 0;
-        const checkEthersInterval = setInterval(() => {
-            if (typeof ethers !== 'undefined') {
-                log('✅ Ethers.js v' + ethers.version + ' loaded', 'success');
-                clearInterval(checkEthersInterval);
+        // Wait for ethers to load with proper promise handling
+        window.ethersLoadPromise.then((loaded) => {
+            if (loaded && typeof ethers !== 'undefined') {
+                log('✅ Ethers.js v' + ethers.version + ' loaded successfully', 'success');
             } else {
-                ethersCheckAttempts++;
-                if (ethersCheckAttempts > 10) {
-                    log('❌ Ethers.js failed to load - wallet features disabled', 'error');
-                    clearInterval(checkEthersInterval);
-                }
+                log('❌ Failed to load ethers.js - wallet features disabled', 'error');
             }
-        }, 200);
+        });
 
         // ===== LOAD SOLC =====
         function loadSolc() {
@@ -779,8 +799,10 @@ contract MyToken {
                 return;
             }
             
-            if (typeof ethers === 'undefined') {
-                log('❌ Ethers.js library not loaded. Please refresh the page.', 'error');
+            // Wait for ethers to be loaded
+            const ethersLoaded = await window.ethersLoadPromise;
+            if (!ethersLoaded || typeof ethers === 'undefined') {
+                log('❌ Blockchain library still loading. Please wait and try again.', 'error');
                 return;
             }
             
