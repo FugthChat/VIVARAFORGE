@@ -541,8 +541,18 @@
         <div class="status-item" id="statusAuth">Auth: --</div>
     </div>
 
-    <!-- LOAD ETHERS.JS FIRST (before any scripts that use it) -->
+    <!-- LOAD ETHERS.JS SYNCHRONOUSLY FIRST -->
     <script src="https://cdn.ethers.io/lib/ethers-5.7.umd.min.js"></script>
+    
+    <!-- Verify Ethers Loaded -->
+    <script>
+        if (typeof ethers === 'undefined') {
+            console.error('Failed to load ethers.js from CDN');
+            alert('Critical Error: Failed to load blockchain library. Please refresh the page.');
+        } else {
+            console.log('Ethers.js loaded successfully:', ethers.version);
+        }
+    </script>
 
     <!-- FIREBASE -->
     <script type="module">
@@ -724,12 +734,20 @@ contract MyToken {
         log('Vivara Forge v2.0.1 Ready', 'info');
         log('Loading Solidity compiler...', 'info');
         
-        // Check if ethers loaded
-        if (typeof ethers !== 'undefined') {
-            log('✅ Ethers.js v' + ethers.version + ' loaded', 'success');
-        } else {
-            log('⚠️ Ethers.js not loaded - wallet features disabled', 'error');
-        }
+        // Check if ethers loaded (with retry)
+        let ethersCheckAttempts = 0;
+        const checkEthersInterval = setInterval(() => {
+            if (typeof ethers !== 'undefined') {
+                log('✅ Ethers.js v' + ethers.version + ' loaded', 'success');
+                clearInterval(checkEthersInterval);
+            } else {
+                ethersCheckAttempts++;
+                if (ethersCheckAttempts > 10) {
+                    log('❌ Ethers.js failed to load - wallet features disabled', 'error');
+                    clearInterval(checkEthersInterval);
+                }
+            }
+        }, 200);
 
         // ===== LOAD SOLC =====
         function loadSolc() {
