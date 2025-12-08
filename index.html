@@ -455,9 +455,9 @@
             <div class="sidebar-section">
                 <div class="sidebar-title">⚙️ Environment</div>
                 <select class="env-select" id="envSelect">
+                    <option value="polygon" selected>🟣 Polygon Mainnet (default)</option>
                     <option value="metamask">🦊 Injected - MetaMask</option>
                     <option value="sepolia">🔗 Sepolia Testnet</option>
-                    <option value="polygon">🟣 Polygon Mumbai</option>
                     <option value="mainnet">⟠ Ethereum Mainnet</option>
                 </select>
                 
@@ -685,6 +685,31 @@
         let compiledName = null;
         let solcLoaded = false;
         let solcCompile = null;
+
+        const NETWORK_CONFIGS = {
+            polygon: {
+                chainId: '0x89',
+                chainName: 'Polygon Mainnet',
+                rpcUrls: ['https://polygon-rpc.com'],
+                blockExplorerUrls: ['https://polygonscan.com'],
+                nativeCurrency: { name: 'MATIC', symbol: 'MATIC', decimals: 18 }
+            },
+            sepolia: {
+                chainId: '0xaa36a7',
+                chainName: 'Sepolia Testnet',
+                rpcUrls: ['https://rpc.sepolia.org'],
+                blockExplorerUrls: ['https://sepolia.etherscan.io'],
+                nativeCurrency: { name: 'Sepolia ETH', symbol: 'ETH', decimals: 18 }
+            },
+            mainnet: {
+                chainId: '0x1',
+                chainName: 'Ethereum Mainnet',
+                rpcUrls: ['https://cloudflare-eth.com'],
+                blockExplorerUrls: ['https://etherscan.io'],
+                nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }
+            },
+            metamask: {}
+        };
 
         // ===== CONTRACT LIBRARY =====
         const contractLibrary = {
@@ -961,24 +986,55 @@ contract VivariaNFT {
             }
             
             try {
+                const selectedNetworkKey = (document.getElementById('envSelect')?.value) || 'polygon';
+                const targetNetwork = NETWORK_CONFIGS[selectedNetworkKey] || NETWORK_CONFIGS.polygon;
+
                 log('Connecting to MetaMask...', 'info');
-                provider = new ethers.providers.Web3Provider(window.ethereum);
+                provider = new ethers.providers.Web3Provider(window.ethereum, 'any');
+
+                if (targetNetwork.chainId) {
+                    try {
+                        log('Switching network to ' + targetNetwork.chainName + '...', 'info');
+                        await window.ethereum.request({
+                            method: 'wallet_switchEthereumChain',
+                            params: [{ chainId: targetNetwork.chainId }]
+                        });
+                    } catch (switchError) {
+                        if (switchError.code === 4902 && targetNetwork.rpcUrls?.length) {
+                            log('Adding ' + targetNetwork.chainName + ' to MetaMask...', 'info');
+                            await window.ethereum.request({
+                                method: 'wallet_addEthereumChain',
+                                params: [targetNetwork]
+                            });
+                        } else if (switchError.code === 4001) {
+                            log('❌ Network switch rejected by user.', 'error');
+                            return;
+                        } else {
+                            throw switchError;
+                        }
+                    }
+                }
+
                 await provider.send("eth_requestAccounts", []);
                 signer = provider.getSigner();
                 userAddress = await signer.getAddress();
-                
+
+                // Refresh network info after potential chain switch
+                provider = new ethers.providers.Web3Provider(window.ethereum, 'any');
                 const network = await provider.getNetwork();
                 const balance = await provider.getBalance(userAddress);
                 const balanceEth = parseFloat(ethers.utils.formatEther(balance)).toFixed(4);
+                const nativeSymbol = targetNetwork.nativeCurrency?.symbol || (network.chainId === 137 ? 'MATIC' : 'ETH');
+                const networkLabel = targetNetwork.chainName || network.name || 'Chain ' + network.chainId;
                 
                 document.getElementById('walletBadge').textContent = userAddress.slice(0,6) + '...' + userAddress.slice(-4);
                 document.getElementById('walletBadge').classList.add('connected');
                 document.getElementById('accountInput').value = userAddress.slice(0,14) + '...';
-                document.getElementById('statusNetwork').textContent = 'Network: ' + (network.name || 'Chain ' + network.chainId);
-                document.getElementById('statusBalance').textContent = 'Balance: ' + balanceEth + ' ETH';
+                document.getElementById('statusNetwork').textContent = 'Network: ' + networkLabel;
+                document.getElementById('statusBalance').textContent = 'Balance: ' + balanceEth + ' ' + nativeSymbol;
                 
                 log('✅ Wallet connected: ' + userAddress, 'success');
-                log('Network: ' + (network.name || 'Chain ' + network.chainId) + ' | Balance: ' + balanceEth + ' ETH', 'info');
+                log('Network: ' + networkLabel + ' | Balance: ' + balanceEth + ' ' + nativeSymbol, 'info');
             } catch (e) {
                 log('❌ Connection failed: ' + e.message, 'error');
             }
